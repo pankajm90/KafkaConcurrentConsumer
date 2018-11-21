@@ -18,17 +18,18 @@ public class KafkaConcurrentConsumer<K, V> {
     private Collection<String> topics=new ArrayList<String>();
     private Collection<TopicPartition> partitions=new ArrayList<TopicPartition>();
     private int pollValue = 100;
-    private ConsumerTask<?, ?> consumerTask;
+    private RecordProcessore<?, ?> recordProcessore;
+    private ConsumerExecutor consumerExecutor;
 
 
     private KafkaConcurrentConsumer(Builder builder) {
         this.clientId = (String) builder.prop.get(ConsumerConfig.CLIENT_ID_CONFIG);
-        if (this.clientId.isEmpty()) {
+        if (this.clientId==null || this.clientId.isEmpty()) {
             this.clientId = "concurrent-consumer-" + CONCURRENT_CONSUMER_CLIENT_ID_SEQUENCE.getAndIncrement();
             builder.prop.setProperty(ConsumerConfig.CLIENT_ID_CONFIG, this.clientId);
         }
         this.groupId=(String)builder.prop.get(ConsumerConfig.GROUP_ID_CONFIG);
-        if(this.groupId.isEmpty()){
+        if(this.groupId==null || this.groupId.isEmpty()){
             this.groupId="group-"+CONCURRENT_CONSUMER_GROUP_ID_SEQUENCE.getAndIncrement();
             builder.prop.setProperty(ConsumerConfig.GROUP_ID_CONFIG, this.groupId);
         }
@@ -51,11 +52,15 @@ public class KafkaConcurrentConsumer<K, V> {
 
     }
 
-    public void consume(ConsumerTask<K, V> consumerTask) {
-        this.consumerTask=consumerTask;
-        ConsumerExecutor.createConsumerExecutor(this).start();
+    public void consume(RecordProcessore<K, V> recordProcessore) {
+        this.recordProcessore = recordProcessore;
+        this.consumerExecutor = ConsumerExecutor.createConsumerExecutor(this);
+        this.consumerExecutor.start();
     }
 
+    public void shutdown(){
+        this.consumerExecutor.stop();
+    }
 
     public Properties getProp() {
         return this.prop;
@@ -77,8 +82,8 @@ public class KafkaConcurrentConsumer<K, V> {
         return this.pollValue;
     }
 
-    public ConsumerTask<?, ?> getConsumerTask() {
-        return this.consumerTask;
+    public RecordProcessore<?, ?> getRecordProcessore() {
+        return this.recordProcessore;
     }
 
     public static class Builder {
@@ -111,7 +116,6 @@ public class KafkaConcurrentConsumer<K, V> {
             this.pollValue = pollValue;
             return this;
         }
-
 
         public KafkaConcurrentConsumer create() {
             return new KafkaConcurrentConsumer(this);
