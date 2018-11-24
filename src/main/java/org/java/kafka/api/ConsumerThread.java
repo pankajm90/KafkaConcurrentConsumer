@@ -19,26 +19,42 @@ public class ConsumerThread<K, V> implements Runnable {
     private Properties properties;
     private RecordProcessore<K, V> recordProcessore;
 
-    public static List<ConsumerThread> createConsumerThread(KafkaConcurrentConsumer<?, ?> kafkaConcurrentConsumer) {
-        List<ConsumerThread> consumerThreads = new ArrayList<ConsumerThread>();
+    public static List<ConsumerThread> createConsumerThread(KafkaConcurrentConsumer<?, ?> kafkaConcurrentConsumer)throws CloneNotSupportedException {
         int numConsumer = kafkaConcurrentConsumer.getNumConsumer();
+        return newThreads(kafkaConcurrentConsumer, numConsumer);
+    }
+
+    private static List<ConsumerThread> newThreads(KafkaConcurrentConsumer<?, ?> kafkaConcurrentConsumer, int numConsumer) throws CloneNotSupportedException {
+        List<ConsumerThread> consumerThreads = new ArrayList<ConsumerThread>();
 
         for (int i = 0; i < numConsumer; i++)
             consumerThreads.add(newInstance(kafkaConcurrentConsumer));
-
         return consumerThreads;
     }
 
-    private static ConsumerThread newInstance(KafkaConcurrentConsumer<?, ?> kafkaConcurrentConsumer) {
+    private static ConsumerThread newInstance(KafkaConcurrentConsumer<?, ?> kafkaConcurrentConsumer) throws CloneNotSupportedException{
         return new ConsumerThread(kafkaConcurrentConsumer.getProp(), kafkaConcurrentConsumer.getPollValue(), kafkaConcurrentConsumer.getRecordProcessore());
     }
 
-    private ConsumerThread(Properties properties, int pollValue, RecordProcessore<K, V> recordProcessore) {
+    private ConsumerThread(Properties properties, int pollValue, RecordProcessore<K, V> recordProcessore) throws CloneNotSupportedException {
         this.properties = (Properties) properties.clone();
+        this.pollValue = pollValue;
+        setClientId();
+        setRecordProcessore(recordProcessore);
+    }
+
+    private void setClientId() {
         this.clientId = this.properties.getProperty(ConsumerConfig.CLIENT_ID_CONFIG) + "-C" + CONSUMER_CLIENT_ID_SEQUENCE.getAndIncrement();
         this.properties.setProperty(ConsumerConfig.CLIENT_ID_CONFIG, this.clientId);
-        this.pollValue = pollValue;
-        this.recordProcessore = recordProcessore;
+    }
+
+    private void setRecordProcessore(RecordProcessore<K, V> recordProcessore) throws CloneNotSupportedException {
+        try{
+            this.recordProcessore = recordProcessore.clone();
+        }catch(CloneNotSupportedException clex){
+            clex.printStackTrace();
+            throw new CloneNotSupportedException();
+        }
     }
 
     public void addTopicPartition(TopicPartition topicPartition) {
@@ -46,29 +62,26 @@ public class ConsumerThread<K, V> implements Runnable {
     }
 
     public void run() {
-        KafkaConsumer<K, V> kafkaConsumer = createKafkaConsumer();
-
-        while (true)
-            processRecord(kafkaConsumer);
+        createKafkaConsumer();
+        assignTopic();
+        startConsumer();
     }
 
-    private KafkaConsumer<K, V> createKafkaConsumer() {
-        KafkaConsumer<K, V> kafkaConsumer = new KafkaConsumer<K, V>(this.properties);
-        assignTopic(kafkaConsumer);
-
-        return kafkaConsumer;
+    public void stop(){
+        this.recordProcessore.stop();
     }
 
-    private void assignTopic(KafkaConsumer<K, V> kafkaConsumer) {
-        kafkaConsumer.assign(this.topicPartitions);
+    private void createKafkaConsumer() {
+        System.out.println(String.format("'%s' initialized ",this.clientId));
+        this.recordProcessore.initalize(this.properties);
     }
 
-    private void processRecord(KafkaConsumer<K, V> kafkaConsumer) {
-        ConsumerRecords<K, V> records = kafkaConsumer.poll(100);
-        if(!records.isEmpty())
-            System.out.print(this.clientId+": ");
-        this.recordProcessore.process(records);
+    private void assignTopic() {
+        this.recordProcessore.assignTopic(this.topicPartitions);
     }
 
+    private void startConsumer() {
+        this.recordProcessore.startConsumer(this.pollValue);
+    }
 
 }
